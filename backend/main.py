@@ -23,6 +23,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class PortfolioRequest(BaseModel):
+    symbols: List[str]
+
 # ---------------------------------------------------------------------------
 # MODELS
 # ---------------------------------------------------------------------------
@@ -242,6 +245,39 @@ NIFTY_50 = {
     "ZOMATO.NS": "Zomato",
 }
 
+SENSEX_30 = {
+    "RELIANCE.BO": "Reliance Industries",
+    "TCS.BO": "Tata Consultancy Services",
+    "HDFCBANK.BO": "HDFC Bank",
+    "ICICIBANK.BO": "ICICI Bank",
+    "BHARTIARTL.BO": "Bharti Airtel",
+    "SBIN.BO": "State Bank of India",
+    "INFY.BO": "Infosys",
+    "ITC.BO": "ITC Limited",
+    "HINDUNILVR.BO": "Hindustan Unilever",
+    "LT.BO": "Larsen & Toubro",
+    "BAJFINANCE.BO": "Bajaj Finance",
+    "HCLTECH.BO": "HCL Technologies",
+    "MARUTI.BO": "Maruti Suzuki",
+    "SUNPHARMA.BO": "Sun Pharmaceutical",
+    "KOTAKBANK.BO": "Kotak Mahindra Bank",
+    "TITAN.BO": "Titan Company",
+    "TATAMOTORS.BO": "Tata Motors",
+    "NTPC.BO": "NTPC Limited",
+    "AXISBANK.BO": "Axis Bank",
+    "ULTRACEMCO.BO": "UltraTech Cement",
+    "ASIANPAINT.BO": "Asian Paints",
+    "BAJAJFINSV.BO": "Bajaj Finserv",
+    "POWERGRID.BO": "Power Grid Corporation",
+    "NESTLEIND.BO": "Nestle India",
+    "WIPRO.BO": "Wipro",
+    "M&M.BO": "Mahindra & Mahindra",
+    "JSWSTEEL.BO": "JSW Steel",
+    "TATASTEEL.BO": "Tata Steel",
+    "INDUSINDBK.BO": "IndusInd Bank",
+    "TECHM.BO": "Tech Mahindra",
+}
+
 def _fetch_search_sync(q: str):
     q_lower = q.lower()
     local_results = []
@@ -256,6 +292,18 @@ def _fetch_search_sync(q: str):
                 region="India",
                 currency="INR"
             ))
+            
+    # Search Sensex 30
+    for symbol, name in SENSEX_30.items():
+        if symbol not in [r.symbol for r in local_results]:
+            if q_lower in symbol.lower() or q_lower in name.lower():
+                local_results.append(SearchResult(
+                    symbol=symbol,
+                    name=name,
+                    type="Equity",
+                    region="India",
+                    currency="INR"
+                ))
             
     try:
         url = f"https://query2.finance.yahoo.com/v1/finance/search?q={q}&quotesCount=10&newsCount=0"
@@ -321,8 +369,8 @@ async def get_trending_stocks():
 
 @app.get("/api/nifty50", response_model=List[StockData])
 async def get_nifty50_stocks():
-    # Return the top 20 of Nifty 50 for performance, as 50 requests can take a few seconds
-    top_nifty = list(NIFTY_50.keys())[:20]
+    # Return all 50 of Nifty 50
+    top_nifty = list(NIFTY_50.keys())
     
     tasks = [asyncio.to_thread(_fetch_quote_sync, sym) for sym in top_nifty]
     results = []
@@ -331,6 +379,23 @@ async def get_nifty50_stocks():
     for i, res in enumerate(responses):
         if isinstance(res, Exception):
             results.append(get_mock_quote(top_nifty[i]))
+        else:
+            results.append(res)
+            
+    return results
+
+@app.get("/api/sensex", response_model=List[StockData])
+async def get_sensex_stocks():
+    # Return all 30 Sensex stocks
+    top_sensex = list(SENSEX_30.keys())
+    
+    tasks = [asyncio.to_thread(_fetch_quote_sync, sym) for sym in top_sensex]
+    results = []
+    responses = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    for i, res in enumerate(responses):
+        if isinstance(res, Exception):
+            results.append(get_mock_quote(top_sensex[i]))
         else:
             results.append(res)
             
@@ -594,6 +659,82 @@ No markdown, no code fences."""
             "recommendation": "Monitor the stock closely. Wait for a clearer trend before entering."
         }
 
+def _fetch_portfolio_analysis_sync(symbols: List[str]) -> dict:
+    """Use Gemini to analyse a portfolio's sector diversification and risk."""
+    try:
+        import yfinance as yf
+        from langchain_core.messages import HumanMessage
+        import json
+
+        llm = _get_gemini_llm()
+        if not llm:
+            return {
+                "diversification_score": 50,
+                "risk_level": "Medium",
+                "analysis": "AI unavailable. Basic portfolio analysis cannot be completed.",
+                "suggestions": ["Please check your API key."],
+                "sector_breakdown": {}
+            }
+
+        sector_counts = {}
+        if not symbols:
+            return {
+                "diversification_score": 0,
+                "risk_level": "N/A",
+                "analysis": "Your portfolio is empty.",
+                "suggestions": ["Add some stocks to analyze your portfolio."],
+                "sector_breakdown": {}
+            }
+
+        for sym in symbols:
+            try:
+                info = yf.Ticker(sym).info
+                sector = info.get("sector", "Unknown")
+                sector_counts[sector] = sector_counts.get(sector, 0) + 1
+            except Exception:
+                sector_counts["Unknown"] = sector_counts.get("Unknown", 0) + 1
+
+        total = len(symbols)
+        sector_breakdown = {k: round((v/total)*100, 1) for k, v in sector_counts.items()} if total > 0 else {}
+
+        prompt = f"""You are an expert AI Portfolio Manager.
+Analyze the following user portfolio based on its sector exposure:
+Portfolio Symbols: {', '.join(symbols)}
+Sector Breakdown: {json.dumps(sector_breakdown)}
+
+Provide a JSON object exactly with these fields:
+- diversification_score: integer 0-100 (how well diversified it is)
+- risk_level: One of: Low, Medium, High, Very High
+- analysis: A 2-3 sentence paragraph explaining your assessment.
+- suggestions: A list of 2-3 short, actionable suggestions (e.g. "Add exposure to Healthcare").
+
+Respond ONLY with raw JSON, no markdown, no code fences.
+"""
+        response = llm.invoke([HumanMessage(content=prompt)])
+        text = response.content.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        
+        result = json.loads(text)
+        return {
+            "diversification_score": int(result.get("diversification_score", 50)),
+            "risk_level": result.get("risk_level", "Medium"),
+            "analysis": result.get("analysis", "Sector breakdown calculated."),
+            "suggestions": result.get("suggestions", ["Consider diversifying further."]),
+            "sector_breakdown": sector_breakdown
+        }
+    except Exception as e:
+        print(f"[Portfolio] Gemini error: {e}")
+        return {
+            "diversification_score": 50,
+            "risk_level": "Medium",
+            "analysis": "An error occurred during portfolio analysis.",
+            "suggestions": ["Try again later."],
+            "sector_breakdown": {}
+        }
+
 # ---------------------------------------------------------------------------
 # AGENT ENDPOINTS (Powered by Gemini)
 # ---------------------------------------------------------------------------
@@ -618,6 +759,84 @@ async def get_agent_risk(symbol: str):
 async def get_agent_report(symbol: str):
     return await asyncio.to_thread(_fetch_report_sync, symbol)
 
+@app.post("/api/agent/portfolio")
+async def get_agent_portfolio(req: PortfolioRequest):
+    return await asyncio.to_thread(_fetch_portfolio_analysis_sync, req.symbols)
+
+@app.get("/api/agent/{symbol}/pipeline")
+async def run_agent_pipeline(
+    symbol: str,
+    mode: str = Query(default="full", regex="^(full|quick)$")
+):
+    """
+    Run the Sentinel LangGraph multi-agent pipeline for a stock.
+
+    Query params:
+      mode: 'full'  → Planner → News → Sentiment → Technical → Risk → Report
+            'quick' → Planner → Technical → Risk → Report (skips news/sentiment)
+
+    Returns the complete agent state including run_id and timestamp for history.
+    """
+    try:
+        from sentinel_graph import run_sentinel_pipeline
+        result = await asyncio.to_thread(run_sentinel_pipeline, symbol, mode)
+        return {
+            "symbol": symbol,
+            "run_id": result.get("run_id", ""),
+            "timestamp": result.get("timestamp", ""),
+            "mode": mode,
+            "agents_run": result.get("agents_run", []),
+            "news": result.get("news"),
+            "sentiment": result.get("sentiment"),
+            "technical": result.get("technical"),
+            "risk": result.get("risk"),
+            "report": result.get("report"),
+            "errors": result.get("errors", []),
+            "agent_graph": "planner → news → sentiment → technical → risk → report"
+        }
+    except Exception as e:
+        print(f"[Pipeline] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class ChatRequest(BaseModel):
+    question: str
+    symbol: Optional[str] = None
+
+def _fetch_chat_sync(question: str, symbol: Optional[str]) -> dict:
+    """AI Chat Agent: Answer a financial question using Gemini."""
+    try:
+        from langchain_core.messages import HumanMessage, SystemMessage
+        import json
+
+        llm = _get_gemini_llm()
+        if not llm:
+            return {"answer": "AI service is currently unavailable. Please check your Gemini API key."}
+
+        context = ""
+        if symbol:
+            context = f"\nThe user is currently viewing the stock: {symbol}. Prioritise information relevant to this stock when answering."
+
+        system_prompt = f"""You are Sentinel, an expert AI financial assistant for Indian and global stock markets.
+You provide clear, concise, and factual financial insights. You never give guaranteed predictions.
+Always phrase uncertain things as possibilities (e.g., 'may', 'could', 'based on current data').{context}
+Keep your answers concise (2-4 sentences max unless a list is clearly better)."""
+
+        response = llm.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=question)
+        ])
+        return {"answer": response.content.strip()}
+    except Exception as e:
+        print(f"[Chat] Gemini error: {e}")
+        return {"answer": "I encountered an error processing your question. Please try again."}
+
+@app.post("/api/agent/chat")
+async def chat_with_sentinel(req: ChatRequest):
+    """AI Chat endpoint — powered by Gemini LLM."""
+    return await asyncio.to_thread(_fetch_chat_sync, req.question, req.symbol)
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+

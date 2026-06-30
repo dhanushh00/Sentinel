@@ -1,7 +1,6 @@
 "use client"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { BrainCircuit, CheckCircle2, AlertTriangle, AlertCircle } from "lucide-react"
 import type { ReportData } from "@/lib/api"
 import { motion } from "framer-motion"

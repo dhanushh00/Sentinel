@@ -95,9 +95,8 @@ GEMINI_API_KEY=your_google_gemini_api_key_here
 
 ### 5. Start the backend server
 ```bash
-# In the /backend directory
-.\venv\Scripts\activate
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+# In the /backend directoryclear
+
 ```
 
 ### 6. Start the frontend

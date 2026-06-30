@@ -4,6 +4,7 @@ import { ReactNode } from "react"
 import { Navbar } from "@/components/navbar"
 import { WatchlistSidebar } from "@/components/watchlist-sidebar"
 import { StockSearch } from "@/components/stock-search"
+import { SentinelChat } from "@/components/sentinel-chat"
 
 interface SiteWrapperProps {
   children: ReactNode
@@ -31,6 +32,8 @@ export function SiteWrapper({ children }: SiteWrapperProps) {
           </div>
         </main>
       </div>
+      {/* Floating AI Chat — visible on all pages */}
+      <SentinelChat />
     </div>
   )
 }

@@ -54,7 +54,7 @@ export function AgentNews({ data, isLoading }: AgentNewsProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="bg-muted/50 p-4 rounded-md border text-sm leading-relaxed">
-            "{data.summary}"
+            {'“'}{data.summary}{'”'}
           </div>
           <div className="flex gap-4 pt-2">
             <div>

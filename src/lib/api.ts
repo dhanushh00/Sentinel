@@ -69,6 +69,14 @@ export interface ReportData {
   recommendation: string;
 }
 
+export interface PortfolioData {
+  diversification_score: number;
+  risk_level: "Low" | "Medium" | "High" | "Very High" | "N/A";
+  analysis: string;
+  suggestions: string[];
+  sector_breakdown: Record<string, number>;
+}
+
 const BACKEND_URL = "http://localhost:8000/api";
 
 // ---------------------------------------------------------------------------
@@ -120,6 +128,17 @@ export async function getNifty50Stocks(): Promise<StockData[]> {
   }
 }
 
+export async function getSensexStocks(): Promise<StockData[]> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/sensex`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (error) {
+    console.error("Error fetching Sensex stocks:", error);
+    return [];
+  }
+}
+
 export async function getHistoricalData(
   symbol: string,
   interval: "daily" | "weekly" | "monthly" = "daily"
@@ -160,5 +179,93 @@ export async function getRiskAnalysis(symbol: string): Promise<RiskData> {
 
 export async function getSentinelReport(symbol: string): Promise<ReportData> {
   const res = await fetch(`${BACKEND_URL}/agent/${symbol}/report`);
+  return await res.json();
+}
+
+export async function getPortfolioAnalysis(symbols: string[]): Promise<PortfolioData> {
+  const res = await fetch(`${BACKEND_URL}/agent/portfolio`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ symbols }),
+  });
+  return await res.json();
+}
+
+export interface PipelineData {
+  symbol: string;
+  run_id: string;
+  timestamp: string;
+  mode: string;
+  agents_run: string[];
+  news: NewsAgentData | null;
+  sentiment: SentimentData | null;
+  technical: TechnicalData | null;
+  risk: RiskData | null;
+  report: ReportData | null;
+  errors: string[];
+  agent_graph: string;
+}
+
+/** Lightweight record stored in localStorage for run history. */
+export interface PipelineRunRecord {
+  run_id: string;
+  symbol: string;
+  timestamp: string;
+  mode: string;
+  outlook: string;
+  confidence: number;
+  agents_run: string[];
+  errors: string[];
+  // Full payload cached for restoring a past run
+  data: PipelineData;
+}
+
+const HISTORY_KEY = "sentinel_pipeline_history";
+const MAX_HISTORY = 10;
+
+export function savePipelineRun(run: PipelineRunRecord): void {
+  try {
+    const existing = getPipelineHistory();
+    const deduped = existing.filter((r) => r.run_id !== run.run_id);
+    const updated = [run, ...deduped].slice(0, MAX_HISTORY);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+  } catch {
+    // localStorage unavailable (SSR or private browsing)
+  }
+}
+
+export function getPipelineHistory(): PipelineRunRecord[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    return raw ? (JSON.parse(raw) as PipelineRunRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function clearPipelineHistory(): void {
+  try {
+    localStorage.removeItem(HISTORY_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export async function getSentinelPipeline(
+  symbol: string,
+  mode: "full" | "quick" = "full"
+): Promise<PipelineData> {
+  const res = await fetch(`${BACKEND_URL}/agent/${symbol}/pipeline?mode=${mode}`);
+  if (!res.ok) throw new Error("Pipeline failed");
+  return await res.json();
+}
+
+export async function askSentinel(question: string, symbol?: string): Promise<{ answer: string }> {
+  const res = await fetch(`${BACKEND_URL}/agent/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question, symbol }),
+  });
+  if (!res.ok) return { answer: "Sorry, I could not process your question. Please try again." };
   return await res.json();
 }

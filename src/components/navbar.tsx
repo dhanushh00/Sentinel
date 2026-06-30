@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { LineChart, Star, Home, Briefcase, BellRing, BarChart3, Shield } from "lucide-react"
+import { LineChart, Star, Home, Briefcase, BellRing, BarChart3, Shield, Bot } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { cn } from "@/lib/utils"
 import { useStocks } from "@/context/stock-context"
@@ -42,6 +42,12 @@ export function Navbar() {
       href: "/compare",
       icon: <BarChart3 className="w-4 h-4 mr-2" />,
       mobileIcon: <BarChart3 className="w-4 h-4" />,
+    },
+    {
+      name: "Agent Lab",
+      href: "/agent-lab",
+      icon: <Bot className="w-4 h-4 mr-2" />,
+      mobileIcon: <Bot className="w-4 h-4" />,
     },
     {
       name: "Alerts",
